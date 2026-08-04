@@ -1,0 +1,205 @@
+# hadron-pauser — assistant configuration playbook
+
+> You are an AI assistant asked to onboard a Hadron pool into hadron-pauser,
+> an open-source watchdog that holds the pool's one-way PAUSE authority and
+> pauses it when its quotes or state look compromised. Your job: given a pool
+> (its Config PDA), produce a complete, validated `config.json` entry, an env
+> checklist, and shadow-mode instructions for the operator. This file tells
+> you exactly how. Follow it in order.
+
+## Hard rules — never break these
+
+1. **Never generate a keypair.** `PAUSER_SECRET` is operator-provided, always.
+2. **Never set `dryRun: false` or `mode: "armed"` yourself.** Every config you
+   produce starts `dryRun: true` + `mode: "shadow"`. Arming is an operator
+   decision AFTER a clean shadow soak (≥1 week, zero false WOULD-PAUSE).
+3. **Reference sources must be prices the pool's quoting authority does NOT
+   control.** Never use the pool's own midprice oracle as a ref. Never use an
+   oracle operated by the same team key unless the operator explicitly
+   accepts that.
+4. **Never weaken safety defaults to reduce noise** (`persistTicks`,
+   `refQuorum`, dispersion gates) without flagging the trade-off in your
+   handoff notes.
+5. If no honest independent reference exists (e.g., prediction-market pools),
+   set `midDeviation.enabled: false` and `drawdown.enabled: false`, keep
+   `quoteAuthority`, and say plainly that price-based protection is not
+   available for this pool.
+
+## Background you need (facts card)
+
+- Pause = `SetPoolState` (disc 21) to `Paused(2)`; the pause authority may
+  only do `Initialized(1) | RejectSwaps(3) → Paused(2)`. One-way: it cannot
+  unpause (admin-only), withdraw, or quote. `Paused` blocks swap + deposit +
+  withdraw. Benign tx errors: `Custom(53)` already-latched, `Custom(71)`
+  closed. `Custom(4)` = this watchdog's key is no longer the pause authority.
+- The ON-CHAIN drawdown guard values vaults at the PUSHED oracle mid — the
+  attacker's own number under a quoting-key compromise — which is why the
+  drawdown budget here re-marks at independent references.
+- Pool states: 0 Uninitialized, 1 Initialized, 2 Paused, 3 RejectSwaps
+  (withdrawals still open!), 4 Closed.
+- In Hadron, `mintX` = base, `mintY` = quote. All ref prices must resolve to
+  **quote-per-base in UI units** (`invert: true` flips a source quoted the
+  other way).
+
+## Step 1 — read the pool from chain
+
+Prereq: `npm install && npm run build` in this directory. Then (replace the
+PDA and RPC):
+
+```bash
+node --input-type=module -e "
+import { Connection, PublicKey } from '@solana/web3.js';
+import { decodeConfigSnapshot, decodeOracleSnapshot, deriveOraclePda, deriveVaults, decodeMintDecimals, resolveProgramId, POOL_STATE_NAMES } from './dist/chain/accounts.js';
+const conn = new Connection(process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com', 'confirmed');
+const configPda = new PublicKey('<CONFIG_PDA>');
+const info = await conn.getAccountInfo(configPda);
+const snap = decodeConfigSnapshot(Uint8Array.from(info.data));
+const oraclePda = deriveOraclePda(snap, resolveProgramId());
+const [o, mx, my] = await conn.getMultipleAccountsInfo([oraclePda, new PublicKey(snap.mintX), new PublicKey(snap.mintY)]);
+const os = decodeOracleSnapshot(Uint8Array.from(o.data));
+console.log(JSON.stringify({ state: POOL_STATE_NAMES[snap.state], mintX: snap.mintX, mintY: snap.mintY,
+  decBase: decodeMintDecimals(Uint8Array.from(mx.data)), decQuote: decodeMintDecimals(Uint8Array.from(my.data)),
+  admin: snap.authority, quotingAuthority: os.authority, pauseAuthority: snap.pauseAuthority,
+  withdrawAuthority: snap.withdrawAuthority, deltaStaleness: snap.deltaStaleness,
+  onchainGuard: { thresholdBps: snap.thresholdBps, rotationIntervalSlots: snap.rotationIntervalSlots },
+  pushedMidAtomRatio: os.midAtomRatio }, null, 2));
+"
+```
+
+Record: mints + decimals, `quotingAuthority` (seed for the allowlist),
+`pauseAuthority` (is it the watchdog key yet?), on-chain guard settings,
+`deltaStaleness` (0 = staleness gate disabled — flag that to the operator).
+
+Identify the pair. Well-known mints: wSOL `So11111111111111111111111111111111111111112`,
+USDC `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`, USDT
+`Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB`, JitoSOL
+`J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn`, mSOL
+`mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So`. Anything else: resolve via an
+explorer or ask the operator — do not guess a symbol.
+
+## Step 2 — classify the pair
+
+| Class | Examples | Implications |
+|---|---|---|
+| major/major | SOL/USDC | CEX + Pyth refs exist; moderate vol |
+| lst-ratio | JitoSOL/SOL, mSOL/SOL | near-zero vol ratio; on-chain oracle refs; long windows are cheap |
+| stable/stable | USDC/USDT | tiny thresholds |
+| rwa-24/7 | gold, xStocks | real vol + off-hours gaps; size thresholds off tail moves |
+| prediction-market | PM pairs | NO honest external ref → rule 5 applies |
+
+## Step 3 — choose reference sources
+
+Aim for **2+ independent sources** (`refQuorum: 2`) whenever they exist; a
+single source is acceptable only for lst-ratio pairs with no alternative
+(flag it). Available adapters:
+
+- `pyth` — find the feed id: `https://hermes.pyth.network/v2/price_feeds?query=<symbol>`
+  (use the hex `id`; verify the symbol in the response matches the pair).
+- `binance` — bookTicker mid for `<SYMBOL>` (e.g., `PAXGUSDT`). WARNING:
+  binance.com is geo-blocked (HTTP 451) from US IPs — only use it when the
+  deployment region is not US (our ECS default is eu-central-1), otherwise
+  drop it.
+- `onchain-account` — a u64 LE at a fixed `offset` × `scale` in another
+  venue's oracle account (e.g., a third-party JitoSOL/SOL venue oracle:
+  account `hKH9LFREBm3TxTx5Ex6D1nHTKEA8ii3CWfhEkB9s21u`, offset 424,
+  scale 1e-10).
+  The operator must supply/confirm the account layout; set
+  `unit: "atomRatio"` if the value is in atoms (with equal decimals, ui and
+  atomRatio coincide). Stake-pool NAV (two-field ratio) is NOT yet an adapter.
+
+Quote-per-base check: if the source quotes base-per-quote, set
+`invert: true`. If the quote currency differs slightly (USDT source for a
+USDC pool), that is usually acceptable — note it in the handoff.
+
+## Step 4 — set the three knobs (presets, then reasoning)
+
+There are exactly three detector knobs per pool:
+
+1. **`quoteAuthority`** — keep `pauseOnChange: true`; set `expected` to the
+   Step-1 `quotingAuthority` plus any rotation targets the operator names.
+2. **`midDeviation.maxBps`** — pause when the pushed mid is this far off the
+   reference, sustained. Normal deviation = cross-venue basis + ref noise +
+   the pool's own spread; start from the preset, then during the shadow soak
+   observe the `midDeviationBps` distribution in `/health` and set
+   `maxBps ≥ ~3× its p99.9`.
+3. **`drawdown.maxBps` / `windowMs`** — the budget: max equity loss (at
+   reference marks) per window. Sizing rule: a real drain counts ~2× the
+   stolen value (both denominations), while a pure price move counts ~half
+   the move on a balanced book — so take the pair's worst benign p99.9 price
+   move `M` over the window and require `maxBps ≥ 1.5 × 0.5 × M`. It is an
+   MTM stop-loss: a large benign market move can consume budget too (the
+   on-chain guard shares that semantics). Note vol scales ~√t, so the long
+   default window (18h) buys a low attacker rate-ceiling cheaply.
+
+| Param | lst-ratio | major | stable | rwa-24/7 (gold-like) |
+|---|---|---|---|---|
+| midDeviation.maxBps | 20 | 60 | 15 | 80 |
+| drawdown.maxBps | 120 | 200 | 80 | 300 |
+| drawdown.windowMs | 64800000 (18h) | 64800000 | 64800000 | 64800000 |
+| refMaxDispersionBps | 20 | 30 | 10 | 40 |
+| refQuorum | sources available (1 ok, flag it) | 2 | 2 | 2 |
+
+Context for rwa: PAXG 30-min ranges run p99 ≈ 105bp, p99.9 ≈ 232bp; an 18-h
+tail move of several % → halve for equity impact, then margin (hence 300).
+Fixed behaviors you do NOT configure: pre-alerts at 60% of each limit
+(critical at 90%), on-chain guard headroom alerts, and 3-of-5 tick
+persistence before any pause acts.
+
+## Step 5 — assemble and validate
+
+Write the pool entry into `config.json` (see `config.example.json` for the
+full shape; global keys: `rpcUrls` ≥2 endpoints, `grpc.endpoint`+`token`,
+`pauserKeypair: "env:PAUSER_SECRET"`, `dryRun: true`). Env checklist for the
+operator: `PAUSER_SECRET`, `GRPC_API_KEY`, RPC url envs, optional
+`HEARTBEAT_URL`, and a snapshot store —
+`STATE_S3_BUCKET` (provisioned by the terraform module) or `STATE_PATH` —
+so restarts neither re-arm the drawdown budget nor miss downtime authority
+changes. For pools that will be ARMED, always set `quoteAuthority.expected`
+explicitly (never rely on the boot-observed value).
+
+Then run:
+
+```bash
+npm run check
+```
+
+Interpret it:
+- `pause_authority` line — if "(NOT this watchdog ✗)": expected before
+  onboarding; the admin must sign `RotatePauseAuthority` (disc 37) to the
+  printed watchdog key before the pool can ever be armed.
+- `ref …bps vs pushed mid` — the unit sanity check. Healthy is roughly
+  <100bps. ~10^k off ⇒ wrong `scale`/decimals; ≈1/x ⇒ missing
+  `invert: true`. Fix and re-run until sane. (`onchain-account` refs print
+  NO DATA in check; they fill from the stream at runtime — validate those by
+  watching `midDeviationBps` in `/health` after `npm run dev`.)
+- `delta_staleness … DISABLED` or `ON-CHAIN drawdown guard is disabled`
+  warnings — surface both to the operator verbatim.
+
+Start shadow mode with `npm run dev` and confirm `/health` (port 8080) shows
+`refQuality: "ok"` and a small `midDeviationBps` for the pool.
+
+## Step 6 — handoff notes (write these for the operator)
+
+1. Shadow soak ≥1 week. Review every `WOULD PAUSE` and `*-nearing`
+   alert; a false verdict means raising the specific threshold that fired
+   (the alert names it), not disabling the detector.
+2. Arming checklist: `RotatePauseAuthority(37)` → `mode: "armed"` →
+   `dryRun: false` → pauser key funded ≥0.05 SOL → log alarms wired →
+   re-run `npm run check` (must print "this watchdog ✓").
+3. Unpausing after an incident is `RUNBOOK.md`'s job — rotate the quoting
+   authority BEFORE unpausing.
+4. Coverage to state plainly (so the operator sizes their own controls):
+   extraction that keeps the mid within `midDeviation.maxBps` AND stays under
+   `drawdown.maxBps` per `windowMs` surfaces as pre-alerts and metrics rather
+   than an automatic pause; single-transaction full withdrawals and pool-ADMIN
+   key compromise are outside what a reactive pause covers (see COVERAGE.md).
+   Never overstate coverage to an operator — they configure their own
+   controls based on what you tell them.
+
+## Files
+
+- [COVERAGE.md](COVERAGE.md): what the watchdog is designed to cover and what stays with the operator
+- [RUNBOOK.md](RUNBOOK.md): incident response + alert triage
+- [CONFIGURATION.md](CONFIGURATION.md): detectors, every setting, alerts, state, arming
+- [config.example.json](config.example.json): full config shape
+- [src/config.ts](src/config.ts): authoritative config schema (zod) with defaults

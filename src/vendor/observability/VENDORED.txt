@@ -1,0 +1,1 @@
+Vendored from @hadron-fi/observability@0.4.0 (sdks/hadron-observability-ts src). Do not edit by hand; re-run scripts/vendor.sh

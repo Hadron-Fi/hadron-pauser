@@ -1,0 +1,37 @@
+{
+  "name": "hadron-pauser",
+  "version": "0.1.0",
+  "description": "Open-source watchdog for Hadron pools: holds the (one-way) pause authority and pauses a pool when its quotes or state look compromised.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx --watch src/index.ts",
+    "check": "tsx src/index.ts check",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "vendor": "./scripts/vendor.sh"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@hadron-fi/sdk-v2": "^0.1.6",
+    "@solana/web3.js": "^1.95.0",
+    "@triton-one/yellowstone-grpc": "^5.0.3",
+    "bs58": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

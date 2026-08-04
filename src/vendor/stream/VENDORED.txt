@@ -1,0 +1,1 @@
+Vendored from @hadron-fi/stream@0.3.1 (sdks/hadron-stream-ts src). Do not edit by hand; re-run scripts/vendor.sh

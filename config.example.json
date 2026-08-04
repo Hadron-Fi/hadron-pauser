@@ -1,0 +1,54 @@
+{
+  "_note": "Copy to config.json. Secrets stay in env vars, referenced as env:NAME. Extra _note keys are ignored.",
+  "cluster": "mainnet-beta",
+  "rpcUrls": [
+    "env:RPC_URL_PRIMARY",
+    "env:RPC_URL_FALLBACK"
+  ],
+  "grpc": {
+    "endpoint": "https://solana-mainnet.g.alchemy.com/",
+    "token": "env:GRPC_API_KEY"
+  },
+  "pauserKeypair": "env:PAUSER_SECRET",
+  "dryRun": true,
+  "pools": [
+    {
+      "_note": "Points at a LIVE mainnet pool so `npm run check` works the moment you copy this file \u2014 run it once to see real output, then swap in your own pool address, reference feed(s) and quoting authority. mode=shadow + dryRun means nothing is ever signed.",
+      "name": "jitosol-sol-6rK6",
+      "config": "6rK6f3zsp744uxhzA9n9rrzbpf4CvBy7oj3eaRrLogxL",
+      "mode": "shadow",
+      "refs": [
+        {
+          "_note": "Third-party venue oracle for JitoSOL/SOL: u64 mid at offset 424, scale 1e-10. Both mints are 9dp so ui == atom ratio here.",
+          "kind": "onchain-account",
+          "account": "hKH9LFREBm3TxTx5Ex6D1nHTKEA8ii3CWfhEkB9s21u",
+          "offset": 424,
+          "scale": 1e-10,
+          "unit": "ui",
+          "staleMs": 30000
+        }
+      ],
+      "refQuorum": 1,
+      "refMaxDispersionBps": 50,
+      "detectors": {
+        "quoteAuthority": {
+          "_note": "The quoting key(s) you consider legitimate \u2014 `npm run check` prints the pool's current one. If omitted, whatever key is present at boot becomes the baseline; always pin it before arming.",
+          "pauseOnChange": true,
+          "expected": [
+            "Bk2qYNMa4hUkbutBcb4JHhMqAbGEFZq4KjicpMCwC2wn"
+          ]
+        },
+        "midDeviation": {
+          "_note": "Pause when the pool's pushed mid is this far off the reference. Starting points by asset class are in CONFIGURATION.md.",
+          "maxBps": 20
+        },
+        "drawdown": {
+          "_note": "Pause if pool equity (marked at the reference price) falls this far below its window maximum. 64800000ms = 18h. pauseOnBreach=false means this budget ALERTS rather than pausing \u2014 a false pause stops your pool quoting, so opt in only after a shadow period.",
+          "maxBps": 120,
+          "windowMs": 64800000,
+          "pauseOnBreach": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+node_modules/
+dist/
+# Platform-skewed lockfiles make npm omit platform-specific optional deps
+# (npm/cli#4828), which silently drops the Yellowstone native binding.
+package-lock.json
+.env
+.env.*
+!.env.example
+config.json
+config.*.json
+!config.example.json
+/state/
+*.log
+terraform/.terraform/
+# Any state, including per-workspace state under terraform.tfstate.d/.
+# State can embed resource attributes and config; it is never committed.
+**/*.tfstate*
+terraform/terraform.tfstate.d/
+terraform/terraform.tfvars.json

@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.env.*
+config.json
+*.log
+.git
+terraform
+test
+Dockerfile
+.dockerignore
