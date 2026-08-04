@@ -38,6 +38,77 @@ nothing left to extract. Rotate the quoting key before unpausing (RUNBOOK).
 | **Pause authority (this service's key)** | Worst case: your pool gets paused. It cannot unpause, withdraw, quote, or change anything else. |
 | **Pool admin** | **Speed bump only.** The admin can unpause, rotate the pause authority away (you get a `pauser-rotated-away` critical alert), rotate the quoting/withdraw authorities, disable the guard, or `ClosePool` (which sweeps the vaults to the withdraw authority and works even from `Paused`). Admin key custody (multisig/timelock) is the real defense; the watchdog's role there is fast, loud detection. |
 
+## How it detects
+
+Three detectors, three knobs (`detectors`, per pool):
+
+| Detector | Knob(s) | Signal |
+|---|---|---|
+| **Quote-authority change** | `quoteAuthority.pauseOnChange` (+ `expected` allowlist) | The pool's quoting authority rotates to a key not on your allowlist → pause. Related fields (admin, withdraw/deposit/pause authority, staleness setting, guard params, pool state) always alert. |
+| **Mid deviation** | `midDeviation.maxBps` | The pool's pushed mid vs the aggregated independent reference, sustained → pause. The primary detector: extraction at any rate requires quoting off-market, which shows here within seconds of the first bad push. Also catches a frozen mid while the market moves. |
+| **Drawdown budget** | `drawdown.maxBps` / `windowMs` / `pauseOnBreach` | Pool equity (both vaults, marked at the **reference** price) may not fall more than `maxBps` below its window maximum within `windowMs` (default 200bps / 18h) → pause. It is a mark-to-market stop-loss, so a large genuine market move consumes budget too. |
+
+### Deposits and withdrawals
+
+Adding or removing liquidity changes the pool's size without anyone losing
+value, so it must not read as drawdown. The watchdog watches for `Deposit` and
+`Withdraw` instructions on your pool and shifts the budget's baseline by the
+equity the flow moved, valued at the same reference price the budget marks
+with. A legitimate withdrawal therefore measures as zero drawdown, while
+trading losses on either side of it still accumulate normally. (The on-chain
+guard solves the same problem by re-anchoring its high-water marks after every
+liquidity event.)
+
+The stream delivers the vault write and the transaction that explains it as
+independent messages, and the vault write usually arrives first — so the
+watchdog does not rely on seeing the transaction in time. Two guards cover it:
+
+- **A sharp one-tick balance move holds drawdown verdicts** for about ten
+  seconds while it is explained. Keyed on balances, not equity, so ordinary
+  price movement never triggers it. If nothing explains the drop, the hold
+  expires and the pause proceeds.
+- **A stream gap resets the baseline.** After a disconnect or failover, the
+  reconcile sweep re-reads account state but cannot replay the transactions
+  it missed, so a liquidity event during the blind period would look like a
+  drain. History is dropped and rebuilt from current state instead.
+
+One more consequence worth knowing:
+- Because withdrawals are accounted rather than counted as losses, the
+  drawdown budget is not what catches a compromised **withdraw** authority.
+  `Paused` does block withdrawals, so a pause triggered by any other detector
+  still stops one — but treat the withdraw key as something to keep cold
+  rather than something this budget watches.
+
+**Which detectors can pause.** Out of the box, only the quote-authority and
+mid-deviation detectors pause; the drawdown budget alerts
+(`drawdown.pauseOnBreach` defaults to `false`). That is deliberate. A false
+pause stops your pool quoting — an immediate, real cost — and the drawdown
+budget has by far the widest false-positive surface: it is a mark-to-market
+measure, so a large genuine market move consumes budget, and it depends on
+correctly accounting for every deposit and withdrawal. The two that do pause
+are high-precision: one is a discrete on-chain fact, the other compares two
+prices and stands down whenever the reference is degraded. Turn
+`pauseOnBreach` on once a shadow period has shown you how the budget behaves
+on your pool's flow.
+
+Fixed behavior you do not configure: pre-alerts at 60% of each limit (critical
+at 90%), and a pause verdict must persist 3 of the last 5 one-second
+evaluations before it acts.
+
+### Reference prices
+
+`refs` per pool, one or more of `pyth` (Hermes feed id), `binance` (bookTicker
+symbol), and `onchain-account` (a `u64` at a fixed `offset` × `scale` in
+another venue's oracle account). They are aggregated with a robust median plus
+staleness, quorum (`refQuorum`) and dispersion (`refMaxDispersionBps`) gates.
+
+If the reference degrades below those gates, the price detectors **downgrade
+to alert-only** — the watchdog never pauses on bad data. Choose sources the
+pool's quoting authority does not control; never use the pool's own oracle.
+
+Note `binance` is unusable from US IP addresses (HTTP 451), so deploy in a
+non-US region if you configure it.
+
 ## Design scope
 
 How the system is built to behave, so you can plan your controls around it:

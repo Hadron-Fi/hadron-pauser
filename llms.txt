@@ -198,8 +198,8 @@ Start shadow mode with `npm run dev` and confirm `/health` (port 8080) shows
 
 ## Files
 
-- [COVERAGE.md](COVERAGE.md): what the watchdog is designed to cover and what stays with the operator
+- [README.md](README.md): quickstart, every setting, starting thresholds, going live
+- [COVERAGE.md](COVERAGE.md): how it detects, what it is designed to cover, what stays with the operator
 - [RUNBOOK.md](RUNBOOK.md): incident response + alert triage
-- [CONFIGURATION.md](CONFIGURATION.md): detectors, every setting, alerts, state, arming
 - [config.example.json](config.example.json): full config shape
 - [src/config.ts](src/config.ts): authoritative config schema (zod) with defaults

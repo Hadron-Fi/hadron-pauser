@@ -39,7 +39,7 @@
           ]
         },
         "midDeviation": {
-          "_note": "Pause when the pool's pushed mid is this far off the reference. Starting points by asset class are in CONFIGURATION.md.",
+          "_note": "Pause when the pool's pushed mid is this far off the reference. Starting points by asset class are in README.md.",
           "maxBps": 20
         },
         "drawdown": {

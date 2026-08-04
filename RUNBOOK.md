@@ -82,6 +82,46 @@ The `[alert]` log line carries the trigger code and an evidence bundle
 - `no snapshot at … — fresh start` — normal on a first boot or after
   changing the snapshot location.
 
+## Alerts
+
+Every verdict is one structured stdout line — severity, pool, code, message,
+and the full evidence bundle:
+
+```
+[alert] severity=critical pool=my-pool code=mid-deviation [SHADOW] WOULD PAUSE — \
+  pushed mid 84.2bps off the independent reference (limit 60bps) \
+  evidence={"midDeviationBps":84.2,"pushedUi":...,"refMid":...}
+```
+
+The service holds no notification credential of its own. Route these wherever
+you already page: on ECS the logs land in CloudWatch, so a metric filter on
+`[alert]` (or on `severity=critical`, or a specific `code=`) plus an alarm is
+the whole integration. `npm run dev` prints them to your terminal.
+
+## State and restarts
+
+Everything re-derives from chain at boot except two things, carried by an
+optional but recommended snapshot: `STATE_S3_BUCKET` (the Terraform module
+provisions the bucket and scoped task role automatically) or `STATE_PATH` for
+a local volume. Written every 60s and on shutdown.
+
+1. **The drawdown window** — without it, every restart or deploy re-arms the
+   budget from zero over `windowMs`.
+2. **The authority baseline** — at boot it diffs the stored values against
+   chain, so a rotation that happened *while the process was down* is detected
+   and classified exactly like a live one.
+
+With neither set the service runs stateless, which is safe; the only cost is
+the drawdown budget re-arming.
+
+## Health
+
+`/health` (port 8080, or `HEALTH_PORT`) reports **process alive + chain stream
+fresh** — never "has it paused recently", and never pool state. A watchdog
+that has paused nothing in months is healthy; a paused pool is a metric, not
+an outage. A degraded reference alerts but does not fail the health check,
+because restarting a container cannot fix someone else's price feed.
+
 ## Service ops
 
 - Health: `GET :8080/health` — `checks.grpc_connected`, `checks.stream_fresh`,
