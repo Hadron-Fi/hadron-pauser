@@ -1,6 +1,6 @@
 # hadron-pauser
 
-A watchdog for [Hadron](https://hadron.fi) pools. It holds your pool's **pause
+A watcher for [Hadron](https://hadron.fi) pools. It holds your pool's **pause
 authority** key, compares the pool against independent reference prices, and
 pauses the pool if it looks compromised.
 
