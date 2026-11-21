@@ -1,8 +1,11 @@
 node_modules/
 dist/
-# Platform-skewed lockfiles make npm omit platform-specific optional deps
-# (npm/cli#4828), which silently drops the Yellowstone native binding.
-package-lock.json
+# package-lock.json IS committed: it pins every dependency (and its integrity
+# hash) so a newly published malicious version can't reach a build. npm/cli#4828
+# caveat: a lockfile rewritten from a platform-skewed node_modules can drop the
+# other platforms' optional deps (e.g. the Yellowstone native binding). Update it
+# only with `npm install --package-lock-only`, and check it still lists
+# @triton-one/yellowstone-grpc-napi-linux-x64-musl before committing.
 .env
 .env.*
 !.env.example
