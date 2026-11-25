@@ -1,6 +1,6 @@
 {
   "name": "hadron-pauser",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Open-source watchdog for Hadron pools: holds the (one-way) pause authority and pauses a pool when its quotes or state look compromised.",
   "license": "Apache-2.0",
   "type": "module",
@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",
-    "@hadron-fi/sdk-v2": "^0.1.6",
+    "@hadron-fi/sdk-v2": "0.4.1",
     "@solana/web3.js": "^1.95.0",
     "@triton-one/yellowstone-grpc": "^5.0.3",
     "bs58": "^5.0.0",

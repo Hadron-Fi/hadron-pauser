@@ -25,7 +25,7 @@ cd "$OUT"
 git init -q
 git add -A
 git -c user.email=eng@hadron.fi -c user.name="Hadron" \
-  commit -qm "hadron-pauser v0.1.0 — open-source one-way pause-authority watchdog for Hadron pools"
+  commit -qm "hadron-pauser v$(node -p "require('./package.json').version") — open-source one-way pause-authority watchdog for Hadron pools"
 
 # Secret scan: fail loudly rather than ship a credential. Patterns match real
 # credential shapes (long suffixes), so docs that mention a prefix like

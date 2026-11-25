@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import bs58 from "bs58";
-import { extractHadronIxs } from "../src/chain/txs.js";
+import { DISC_NAMES, TAMPER_DISCS, extractHadronIxs } from "../src/chain/txs.js";
 
 const PROGRAM = "HADRoNbLovyqhCsocfYQYB7QdfCAAinN9HTePvBCVDQ8";
 const CONFIG = "6rK6f3zsp744uxhzA9n9rrzbpf4CvBy7oj3eaRrLogxL";
@@ -64,5 +64,26 @@ describe("liquidity-flow parsing", () => {
 
   it("ignores instructions from other programs", () => {
     expect(extractHadronIxs(update(lpData(1, 1n, 1n)), "SomeOtherProgram1111111111111111111111111111")).toHaveLength(0);
+  });
+});
+
+describe("V2 discriminators (39-43)", () => {
+  it("names the V2 instructions instead of Unknown(n)", () => {
+    const names = [39, 40, 41, 42, 43].map(
+      (d) => extractHadronIxs(update(Uint8Array.from([d])), PROGRAM)[0].name,
+    );
+    expect(names).toEqual([
+      "UpdateRefillConfig",
+      "RefillPriceDepth",
+      "SetSpreadInitAllowance",
+      "CloseSpreadConfig",
+      "SyncProgramVersion",
+    ]);
+    expect(DISC_NAMES[44]).toBeUndefined();
+  });
+
+  it("treats 39/41/42 as tamper, not the routine refill (40) or permissionless sync (43)", () => {
+    for (const d of [39, 41, 42]) expect(TAMPER_DISCS.has(d)).toBe(true);
+    for (const d of [40, 43]) expect(TAMPER_DISCS.has(d)).toBe(false);
   });
 });

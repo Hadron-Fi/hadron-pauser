@@ -50,10 +50,20 @@ export const DISC_NAMES: Record<number, string> = {
   36: "RotateSpreadAdmin",
   37: "RotatePauseAuthority",
   38: "PokeDrawdownGuard",
+  // V2 program (upgrade 2026-11-23); unused on V1, so naming them is safe on both.
+  39: "UpdateRefillConfig", // quoting authority
+  40: "RefillPriceDepth", // quoting authority, routine refill
+  41: "SetSpreadInitAllowance", // fee admin, global allowlist (no pool account)
+  42: "CloseSpreadConfig", // pool authority or fee admin
+  43: "SyncProgramVersion", // permissionless
 };
 
-/** Discs that change authorities/protections — always alert-worthy. */
-export const TAMPER_DISCS = new Set([15, 16, 17, 20, 21, 30, 33, 34, 35, 36, 37]);
+/**
+ * Discs that change authorities/protections — always alert-worthy.
+ * V2: 39 (refill config), 41 (spread-init allowlist), 42 (drops a pool's
+ * spread triggers). Not 40 (routine quoter refill) or 43 (permissionless).
+ */
+export const TAMPER_DISCS = new Set([15, 16, 17, 20, 21, 30, 33, 34, 35, 36, 37, 39, 41, 42]);
 
 /**
  * Liquidity flow carried by a Deposit (disc 1) or Withdraw (disc 2).

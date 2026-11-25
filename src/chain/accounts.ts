@@ -39,7 +39,7 @@ export interface ConfigSnapshot {
   mintX: string;
   mintY: string;
   curveMeta: string; // required account for SetPoolState
-  deltaStaleness: number; // slots, 0 = staleness gate disabled
+  deltaStaleness: number; // slots, 0 = staleness gate disabled; u16 on V2 (low @139, high @143 — sdk-v2 >= 0.4.0)
   tokenProgramX: string;
   tokenProgramY: string;
   depositAuthority: string;
